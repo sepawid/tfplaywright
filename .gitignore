@@ -1,0 +1,16 @@
+# Secrets and environment
+.env*
+*.pem
+*.key
+*.token
+
+# OS and system files
+.DS_Store
+Thumbs.db
+
+# Logs and runtime artifacts
+*.log
+tmp/
+scratch/
+test-results/
+playwright-report/
