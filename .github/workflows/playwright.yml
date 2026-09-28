@@ -37,6 +37,16 @@ jobs:
           PLAYWRIGHT_BASE_URL: https://ager.pl
         run: npx playwright test tests/specs/smoke tests/specs/ui/responsive_breakpoints.spec.ts tests/specs/api/public_api_demo.spec.ts
 
+      - name: Validate DEMO_SECRET for Live E2E (Fail-Closed)
+        if: ${{ github.event_name != 'pull_request' }}
+        env:
+          DEMO_SECRET: ${{ secrets.DEMO_SECRET }}
+        run: |
+          if [ -z "$DEMO_SECRET" ]; then
+            echo "::error::[SECURITY GATE ERROR] secrets.DEMO_SECRET nie jest skonfigurowany w repozytorium GitHub Actions. Zaufany przebieg mutujący nie może zostać uruchomiony bez sekretu."
+            exit 1
+          fi
+
       - name: Run Live E2E Mutating Tests (Trusted Events Only)
         if: ${{ github.event_name != 'pull_request' }}
         env:

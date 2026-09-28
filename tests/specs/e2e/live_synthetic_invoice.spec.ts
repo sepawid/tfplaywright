@@ -4,10 +4,14 @@ import * as crypto from 'crypto';
 test.describe('Live Synthetic Invoice Full Flow (UI + API against ager.pl)', () => {
   const demoSecret = process.env.DEMO_SECRET || process.env.DEMO_TEST_TOKEN;
 
-  test.skip(
-    !demoSecret,
-    'Krok mutujący wymaga sekretu DEMO_SECRET / DEMO_TEST_TOKEN. Bezpieczne bramki CI odrzucają mutacje w niezaufanych PR.'
-  );
+  test.beforeAll(() => {
+    if (!demoSecret) {
+      throw new Error(
+        '[SECURITY GATE ERROR] DEMO_SECRET jest wymagany do uruchomienia testów E2E z mutacjami. ' +
+        'Pominięcie testu na zaufanej gałęzi jest niedozwolone — brak sekretu musi kończyć się błędem CI.'
+      );
+    }
+  });
 
   let authToken: string;
   let businessId: string;
@@ -129,8 +133,11 @@ test.describe('Live Synthetic Invoice Full Flow (UI + API against ager.pl)', () 
     approvedInvoiceNumber = body.number;
   });
 
-  // 5. Przeładowanie (API + UI)
-  test('Krok 5: Przeładowanie stanu w API i weryfikacja widoku UI w przeglądarce', async ({ request, page }) => {
+  // 5. Przeładowanie (API + UI z bezwzględną asercją DOM)
+  test('Krok 5: Przeładowanie stanu w API i bezwzględna weryfikacja widoku UI po odświeżeniu', async ({
+    request,
+    page,
+  }) => {
     // 5a. Weryfikacja API
     const apiRes = await request.get(`/api/v1/invoices/${createdDraftId}`, {
       headers: {
@@ -143,26 +150,26 @@ test.describe('Live Synthetic Invoice Full Flow (UI + API against ager.pl)', () 
     expect(invoiceData.number).toBe(approvedInvoiceNumber);
     expect(invoiceData.approved_at).not.toBeNull();
 
-    // 5b. Weryfikacja UI — załadowanie aplikacji, wstrzyknięcie sesji i page.reload()
-    await page.goto('/');
-    await page.evaluate(
-      ({ token, bId }) => {
-        localStorage.setItem('jdg_auth_token', token);
-        localStorage.setItem('jdg_auth_role', 'OWNER');
-        localStorage.setItem('jdg_business_id', bId);
+    // 5b. Weryfikacja UI — faktyczny mechanizm tożsamości aplikacji (window.__EPHEMERAL_TEST_IDENTITY__)
+    // oraz nawigacja do widoku dashboardu (sessionStorage 'ager-view-mode')
+    await page.addInitScript(
+      ({ token }) => {
+        (window as any).__EPHEMERAL_TEST_IDENTITY__ = { role: 'OWNER', token };
+        sessionStorage.setItem('ager-view-mode', 'dashboard');
       },
-      { token: authToken, bId: businessId }
+      { token: authToken }
     );
 
+    await page.goto('/');
     await page.reload();
 
-    // Sprawdzenie obecności tabeli faktur i rekordu o zatwierdzonym numerze
-    await expect(page.locator('body')).toBeVisible();
-    const invoiceRow = page.locator(`text=${approvedInvoiceNumber}`);
-    if (await invoiceRow.isVisible({ timeout: 4000 }).catch(() => false)) {
-      await expect(invoiceRow).toBeVisible();
-      await expect(page.locator(`text=${approvedInvoiceNumber}`).locator('..')).toContainText('1230.00');
-    }
+    // Bezwzględna asercja: wiersz zatwierdzonej faktury MUSI być widoczny w tabeli UI.
+    // Brak numeru faktury w UI to bezwzględny FAIL (żadnych warunków if/catch).
+    const invoiceRow = page.locator(`[data-testid="invoice-row-${createdDraftId}"]`);
+    await expect(invoiceRow).toBeVisible({ timeout: 10000 });
+    await expect(invoiceRow.locator('[data-testid="invoice-number"]')).toHaveText(approvedInvoiceNumber);
+    await expect(invoiceRow.locator('[data-testid="invoice-status-badge"]')).toContainText('ZATWIERDZONA');
+    await expect(invoiceRow.locator('[data-testid="invoice-gross-total"]')).toContainText('1 230,00');
   });
 
   // 6. Uzgodnienie kwot (Niezmiennik finansowy Decimal)
