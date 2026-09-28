@@ -24,11 +24,13 @@ export function isProtectedUrl(url: URL | string, baseURL?: string): boolean {
   try {
     const parsed = typeof url === 'string' ? resolveTargetUrl(url, baseURL) : url;
     const host = parsed.hostname.toLowerCase();
-    // Dozwolone do mutacji są WYŁĄCZNIE loopback / localhost
+    // Dozwolone do mutacji są interfejs loopback oraz publiczne środowisko demonstracyjne ager.pl
     if (host === '127.0.0.1' || host === 'localhost') {
       return false;
     }
-    // [SANITYZACJA PUBLICZNA / PUBLIC REDACTION: usunięto nazwę domeny prywatnej ze ścieżki ochrony]
+    if ((host === 'ager.pl' || host === 'www.ager.pl') && process.env.ALLOW_DEMO_MUTATIONS !== 'false') {
+      return false;
+    }
     // Każdy inny host (np. chroniona-domena-zewnetrzna.pl, domeny publiczne, staging) jest BEZWZGLĘDNIE chroniony
     return true;
   } catch {

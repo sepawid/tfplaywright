@@ -1,0 +1,26 @@
+{
+  "name": "tfplaywright",
+  "version": "1.0.0",
+  "description": "Live Playwright E2E and API Test Framework for JDG Accounting Demo (ager.pl)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:smoke": "playwright test tests/specs/smoke",
+    "test:ui": "playwright test tests/specs/ui",
+    "test:api": "playwright test tests/specs/api",
+    "test:live": "PLAYWRIGHT_BASE_URL=https://ager.pl playwright test",
+    "report": "playwright show-report",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.1",
+    "@playwright/test": "^1.50.0",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.7.2"
+  }
+}

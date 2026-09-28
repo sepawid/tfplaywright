@@ -14,3 +14,5 @@ tmp/
 scratch/
 test-results/
 playwright-report/
+node_modules/
+

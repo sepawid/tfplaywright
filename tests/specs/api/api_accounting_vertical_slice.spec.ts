@@ -17,6 +17,11 @@ import { Client } from 'pg';
 import * as crypto from 'crypto';
 
 test.describe('API Accounting & Database Vertical Slice (Local Isolated Only)', () => {
+  test.skip(
+    !process.env.TEST_DATABASE_URL && !process.env.DATABASE_URL,
+    'Wymaga lokalnej bazy PostgreSQL (TEST_DATABASE_URL). Testy wewnętrznych triggerów i RLS nie są wykonywane zdalnie na publicznym serwerze.'
+  );
+
   let db: Client;
   const businessId = crypto.randomUUID();
   const actorId = crypto.randomUUID();
