@@ -43,5 +43,20 @@ export default defineConfig({
         baseURL,
       },
     },
+    {
+      name: 'e2e',
+      testDir: './tests/specs/e2e',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL,
+      },
+    },
+    {
+      name: 'local-analysis',
+      testDir: './tests/local_analysis',
+      use: {
+        baseURL,
+      },
+    },
   ],
 });

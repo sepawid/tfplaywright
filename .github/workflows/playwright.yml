@@ -32,11 +32,17 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Run Playwright Tests against ager.pl
+      - name: Run Read-Only Smoke & Contract Tests
         env:
           PLAYWRIGHT_BASE_URL: https://ager.pl
-          ALLOW_DEMO_MUTATIONS: "true"
-        run: npx playwright test tests/specs/smoke tests/specs/api/public_api_demo.spec.ts tests/specs/ui/responsive_breakpoints.spec.ts
+        run: npx playwright test tests/specs/smoke tests/specs/ui/responsive_breakpoints.spec.ts tests/specs/api/public_api_demo.spec.ts
+
+      - name: Run Live E2E Mutating Tests (Trusted Events Only)
+        if: ${{ github.event_name != 'pull_request' }}
+        env:
+          PLAYWRIGHT_BASE_URL: https://ager.pl
+          DEMO_SECRET: ${{ secrets.DEMO_SECRET }}
+        run: npx playwright test tests/specs/e2e/live_synthetic_invoice.spec.ts
 
       - name: Upload Playwright Report
         uses: actions/upload-artifact@v4

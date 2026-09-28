@@ -11,8 +11,8 @@
  * 5. Ochrona Circuit Breaker na poziomie APIRequestContext i blokada przekierowań (307 redirect guard).
  */
 
-import { test, expect } from '../../fixtures/base.fixture';
-import { createIsolatedDbClient } from '../../fixtures/db-helper';
+import { test, expect } from '../fixtures/base.fixture';
+import { createIsolatedDbClient } from '../fixtures/db-helper';
 import { Client } from 'pg';
 import * as crypto from 'crypto';
 

@@ -9,6 +9,8 @@
     "test:smoke": "playwright test tests/specs/smoke",
     "test:ui": "playwright test tests/specs/ui",
     "test:api": "playwright test tests/specs/api",
+    "test:e2e": "playwright test tests/specs/e2e",
+    "test:local-analysis": "playwright test tests/local_analysis",
     "test:live": "PLAYWRIGHT_BASE_URL=https://ager.pl playwright test",
     "report": "playwright show-report",
     "typecheck": "tsc --noEmit"
