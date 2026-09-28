@@ -38,6 +38,24 @@ export function isProtectedUrl(url: URL | string, baseURL?: string): boolean {
   }
 }
 
+/**
+ * Rozpoznaje żądania infrastrukturalne CDN (np. Cloudflare RUM),
+ * które NIE są mutacjami aplikacyjnymi i powinny być przepuszczane
+ * przez Circuit Breaker bez blokowania ani rejestrowania.
+ *
+ * Cloudflare wstrzykuje POST /cdn-cgi/rum? (Real User Monitoring)
+ * do każdej strony serwowanej przez CDN. Nie jest to nasz kod.
+ */
+export function isCdnInfrastructureRequest(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    // Cloudflare: /cdn-cgi/* (RUM, challenges, trace, etc.)
+    return parsed.pathname.startsWith('/cdn-cgi/');
+  } catch {
+    return false;
+  }
+}
+
 export function shouldBlockMutation(
   urlOrPath: string,
   baseURL: string | undefined,
@@ -198,6 +216,11 @@ export const test = base.extend<ExtendedFixtures>({
       const url = route.request().url();
 
       if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+        // Przepuszczanie żądań infrastrukturalnych CDN (Cloudflare RUM, challenges)
+        // bez blokowania i bez rejestrowania jako nieoczekiwane mutacje
+        if (isCdnInfrastructureRequest(url)) {
+          return route.continue();
+        }
         const check = shouldBlockMutation(url, baseURL, testInfo.project.name);
         if (check.block) {
           const record = `${method} ${check.resolvedUrl}`;
