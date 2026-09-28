@@ -218,11 +218,13 @@ Plik [`.github/workflows/playwright.yml`](.github/workflows/playwright.yml) impl
 | Duplikacja zapisów | Idempotency-Key (INV-030) | [`public_api_demo.spec.ts`](tests/specs/api/public_api_demo.spec.ts) `TC-API-03` | `400` bez `Idempotency-Key` | ✅ Walidacja nagłówka. ❌ Nie testuje retencji kluczy w DB. |
 | Publiczny dostęp do sesji | Usunięcie `POST /demo/session` | [`public_api_demo.spec.ts`](tests/specs/api/public_api_demo.spec.ts) `TC-API-04` | `404` lub `405` (NIGDY 200) | ✅ Endpoint niedostępny. |
 | Wydanie tokenu bez sekretu | `X-Demo-Secret` wymagany | [`public_api_demo.spec.ts`](tests/specs/api/public_api_demo.spec.ts) `TC-API-05` | `403 FORBIDDEN` | ✅ Bramka sekretu. ❌ Nie testuje timing-safe porównania. |
-| **Błąd w cyklu życia faktury** | **DRAFT→VALID→APPROVED** | [`live_synthetic_invoice.spec.ts`](tests/specs/e2e/live_synthetic_invoice.spec.ts) **Krok 1–4** | Statusy HTTP 200/201, przejścia stanów | ✅ Przejścia na żywym serwerze. ❌ Nie testuje wyzwalaczy DB. |
-| **Float drift / błędy zaokrągleń** | **net + VAT = gross (Decimal)** | [`live_synthetic_invoice.spec.ts`](tests/specs/e2e/live_synthetic_invoice.spec.ts) **Krok 6** | `100000 + 23000 = 123000` (grosze) | ✅ Niezmiennik na żywym API. ❌ Nie testuje NUMERIC w PostgreSQL. |
-| **Iluzja stanu w React** | **Persystencja po reload()** | [`live_synthetic_invoice.spec.ts`](tests/specs/e2e/live_synthetic_invoice.spec.ts) **Krok 5** | Faktura widoczna po `page.reload()` | ✅ Dane z API, nie z cache. |
-| **Duplikacja przy retransmisji** | **Idempotencja zatwierdzenia** | [`live_synthetic_invoice.spec.ts`](tests/specs/e2e/live_synthetic_invoice.spec.ts) **Krok 8** | Replay 200, zmieniony payload 409 | ✅ Idempotencja + wykrycie konfliktu. |
-| **Odmowa między firmami** | **Izolacja danych** | [`live_synthetic_invoice.spec.ts`](tests/specs/e2e/live_synthetic_invoice.spec.ts) **Krok 7** | `401` bez tokenu, `404` na obcy ID | ✅ Bramki HTTP. ❌ Nie testuje RLS. |
+| **Błąd w cyklu życia faktury** | **DRAFT→VALID→APPROVED** | [`live_synthetic_invoice.spec.ts`](tests/specs/e2e/live_synthetic_invoice.spec.ts) **Krok 1–4** | Statusy HTTP 200/201, przejścia stanów | ✅ Dowodzi przejść stanów w live UI/API. ❌ Nie dowodzi wyzwalaczy PostgreSQL. |
+| **Float drift / błędy zaokrągleń** | **net + VAT = gross (Decimal)** | [`live_synthetic_invoice.spec.ts`](tests/specs/e2e/live_synthetic_invoice.spec.ts) **Krok 6** | `100000 + 23000 = 123000` (grosze) | ✅ Dowodzi niezmiennika na żywym API. ❌ Nie dowodzi typów NUMERIC w PostgreSQL. |
+| **Iluzja stanu w React** | **Persystencja po reload()** | [`live_synthetic_invoice.spec.ts`](tests/specs/e2e/live_synthetic_invoice.spec.ts) **Krok 5** | Faktura widoczna w tabeli po `page.reload()` | ✅ Dowodzi persystencji danych po odświeżeniu strony. |
+| **Duplikacja przy retransmisji** | **Idempotencja zatwierdzenia** | [`live_synthetic_invoice.spec.ts`](tests/specs/e2e/live_synthetic_invoice.spec.ts) **Krok 8** | Replay 200, zmieniony payload 409 | ✅ Dowodzi idempotencji API i wykrywania kolizji klucza. |
+| **Odmowa między firmami (HTTP)** | **Bramka autoryzacji HTTP** | [`live_synthetic_invoice.spec.ts`](tests/specs/e2e/live_synthetic_invoice.spec.ts) **Krok 7** | `401` bez tokenu, `404` na obcy ID | ✅ Dowodzi bramek HTTP w FastAPI. ❌ Nie dowodzi RLS w PostgreSQL. |
+| **Naruszenie zatwierdzonej faktury (Immutability)** | **Append-only w bazie (`invoice_immutable_guard`)** | Test integracyjny `test_prevent_approved_invoice_mutation` oraz `test_v4_005b_approval_and_posting.py` (w `jdg_nc_app`) | Wyzwalacz PostgreSQL rzuca wyjątek na UPDATE/DELETE | ✅ **Dowód w teście integracyjnym PostgreSQL.** ❌ Playwright widzi tylko odrzucenie HTTP. |
+| **Wyciek danych między firmami (DB)** | **PostgreSQL Row Level Security (FORCE RLS)** | Testy integracyjne `test_v4_002_rls.py::test_cross_business_sql_matrix_denies_read_and_mutation` i `test_v4_005b_rls.py` (w `jdg_nc_app`) | Zapytania SQL bez pasującego `jdg.business_profile_id` zwracają 0 wierszy | ✅ **Dowód w teście integracyjnym PostgreSQL.** ❌ Playwright nie testuje bezpośrednio SQL RLS. |
 
 ---
 
@@ -256,18 +258,22 @@ Poziom 1: Testy Jednostkowe Domeny
 
 Poziom 2: Testy Integracyjne PostgreSQL
 └── W prywatnym repozytorium jdg_nc_app (146+ testów)
-└── RLS, wyzwalacze append-only, migracje Alembic, audyt
+└── Nienaruszalność (Immutability): wyzwalacz invoice_immutable_guard
+    (test_invoice_approval_vulnerabilities.py::test_prevent_approved_invoice_mutation)
+└── Izolacja RLS: PostgreSQL FORCE ROW LEVEL SECURITY
+    (test_v4_002_rls.py::test_cross_business_sql_matrix_denies_read_and_mutation)
+└── Wyzwalacze append-only, migracje Alembic, audyt bez mutacji
 └── Wybrane przykłady w tests/local_analysis/ (wymagają TEST_DATABASE_URL)
 
 Poziom 3: Testy Read-Only Czarnej Skrzynki (smoke + api)
 └── To repozytorium: smoke/ i api/ uruchamiane na żywo przeciwko ager.pl
-└── Dowodzą: dostępność, kontrakty OpenAPI, bramki autoryzacji, usunięte endpointy
+└── Dowodzą: dostępność, kontrakty OpenAPI, bramki autoryzacji HTTP 401/403, usunięte endpointy
 └── NIE mogą odczytać stanu bazy ani wyzwalaczy
 
 Poziom 4: Testy E2E z Mutacjami (GOLDEN-003 live lifecycle)
-└── To repozytorium: e2e/ uruchamiane przeciwko ager.pl (z DEMO_SECRET)
-└── Dowodzą: cykl życia faktury, niezmiennik netto+VAT=brutto, persystencja
-└── po reload(), idempotencja, izolacja dostępu
+└── To repozytorium: e2e/ (Run 36481489810, SHA 24702c2) przeciwko ager.pl
+└── Dowodzą: pełny cykl życia faktury w live UI/API, niezmiennik netto+VAT=brutto,
+    persystencja w UI po page.reload(), ochrona idempotencji
 └── NIE mogą zweryfikować stanu PostgreSQL ani wyzwalaczy bezpośrednio
 
 Poziom 5: CI z Zielonymi Statusami (Potwierdzenie Właściciela)
