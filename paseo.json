@@ -1,0 +1,12 @@
+{
+  "worktree": {
+    "setup": [
+      "npm ci",
+      "npx playwright install chromium"
+    ]
+  },
+  "scripts": {
+    "typecheck": { "command": "npm run typecheck" },
+    "smoke-ro": { "command": "npx playwright test --project=smoke --project=ui --project=api" }
+  }
+}
