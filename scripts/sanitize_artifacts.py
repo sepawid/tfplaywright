@@ -16,6 +16,7 @@ Target patterns redacted:
 
 from __future__ import annotations
 
+import base64
 import io
 import os
 import re
@@ -79,39 +80,58 @@ def sanitize_text(text: str, patterns: list[tuple[re.Pattern[str], str]]) -> tup
     return modified, replacements
 
 
-def sanitize_zip_file(zip_path: Path, patterns: list[tuple[re.Pattern[str], str]]) -> int:
+def sanitize_zip_bytes(payload: bytes, patterns: list[tuple[re.Pattern[str], str]]) -> tuple[bytes, int]:
+    """Scrub text entries of a zip archive held in memory. Raises on a corrupt archive."""
     total_replacements = 0
     in_memory = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(payload), "r") as source_zip:
+        with zipfile.ZipFile(in_memory, "w", zipfile.ZIP_DEFLATED) as target_zip:
+            for item in source_zip.infolist():
+                data = source_zip.read(item.filename)
+                suffix = Path(item.filename).suffix.lower()
+                if suffix in TEXT_EXTENSIONS or item.filename.endswith((".network", ".trace")):
+                    try:
+                        text = data.decode("utf-8")
+                    except UnicodeDecodeError:
+                        target_zip.writestr(item, data)  # binary entry inside the archive
+                        continue
+                    sanitized_text, count = sanitize_text(text, patterns)
+                    total_replacements += count
+                    target_zip.writestr(item, sanitized_text.encode("utf-8"))
+                else:
+                    target_zip.writestr(item, data)
+    return in_memory.getvalue(), total_replacements
 
-    try:
-        with zipfile.ZipFile(zip_path, "r") as source_zip:
-            with zipfile.ZipFile(in_memory, "w", zipfile.ZIP_DEFLATED) as target_zip:
-                for item in source_zip.infolist():
-                    data = source_zip.read(item.filename)
-                    # Check if file inside zip is text-based
-                    suffix = Path(item.filename).suffix.lower()
-                    if suffix in TEXT_EXTENSIONS or item.filename.endswith((".network", ".trace")):
-                        try:
-                            text = data.decode("utf-8")
-                            sanitized_text, count = sanitize_text(text, patterns)
-                            total_replacements += count
-                            target_zip.writestr(item, sanitized_text.encode("utf-8"))
-                        except UnicodeDecodeError:
-                            # Binary entry inside archive
-                            target_zip.writestr(item, data)
-                    else:
-                        target_zip.writestr(item, data)
 
-        if total_replacements > 0:
-            zip_path.write_bytes(in_memory.getvalue())
-
-    except Exception as e:
-        print(f"[WARN] Error sanitizing zip archive {zip_path}: {e}", file=sys.stderr)
-
+def sanitize_zip_file(zip_path: Path, patterns: list[tuple[re.Pattern[str], str]]) -> int:
+    sanitized, total_replacements = sanitize_zip_bytes(zip_path.read_bytes(), patterns)
+    if total_replacements > 0:
+        zip_path.write_bytes(sanitized)
     return total_replacements
 
 
+# The HTML reporter embeds all results (errors, call logs, request headers) as a base64 zip
+# in this template. Regexes over the HTML see only base64, so the archive is decoded,
+# scrubbed and re-encoded.
+EMBEDDED_REPORT_PATTERN = re.compile(
+    r'(<template id="playwrightReportBase64">data:application/zip;base64,)([A-Za-z0-9+/=]+)(</template>)'
+)
+
+
+def sanitize_embedded_report(html: str, patterns: list[tuple[re.Pattern[str], str]]) -> tuple[str, int]:
+    total = 0
+
+    def scrub(match: re.Match[str]) -> str:
+        nonlocal total
+        sanitized, count = sanitize_zip_bytes(base64.b64decode(match.group(2), validate=True), patterns)
+        total += count
+        return match.group(1) + base64.b64encode(sanitized).decode("ascii") + match.group(3)
+
+    return EMBEDDED_REPORT_PATTERN.sub(scrub, html), total
+
+
 def sanitize_directory(target_dir: Path, patterns: list[tuple[re.Pattern[str], str]]) -> tuple[int, int]:
+    """Scrub every artifact under target_dir. Any failure raises: an unscrubbed file must not be uploaded."""
     scanned_files = 0
     total_replacements = 0
 
@@ -127,14 +147,15 @@ def sanitize_directory(target_dir: Path, patterns: list[tuple[re.Pattern[str], s
         if path.suffix.lower() in TEXT_EXTENSIONS:
             try:
                 content = path.read_text(encoding="utf-8")
-                sanitized, count = sanitize_text(content, patterns)
-                if count > 0:
-                    path.write_text(sanitized, encoding="utf-8")
-                    total_replacements += count
             except UnicodeDecodeError:
-                pass
-            except Exception as e:
-                print(f"[WARN] Failed to sanitize {path}: {e}", file=sys.stderr)
+                continue
+            sanitized, count = sanitize_text(content, patterns)
+            if path.suffix.lower() == ".html":
+                sanitized, embedded = sanitize_embedded_report(sanitized, patterns)
+                count += embedded
+            if count > 0:
+                path.write_text(sanitized, encoding="utf-8")
+                total_replacements += count
 
         elif path.suffix.lower() == ".zip":
             replacements = sanitize_zip_file(path, patterns)
@@ -158,7 +179,12 @@ def main() -> None:
 
     for directory in dirs_to_sanitize:
         if directory.exists():
-            scanned, scrubbed = sanitize_directory(directory, patterns)
+            try:
+                scanned, scrubbed = sanitize_directory(directory, patterns)
+            except Exception as error:
+                # Fail closed: the workflow skips the artifact upload when this step fails.
+                print(f"[SANITIZE FAILED] {directory.name}/: {type(error).__name__}: {error}", file=sys.stderr)
+                sys.exit(1)
             total_scanned += scanned
             total_scrubbed += scrubbed
             print(f"Scanned {scanned} files in {directory.name}/: {scrubbed} sensitive items redacted.")

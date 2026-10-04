@@ -82,6 +82,18 @@ test.describe('Live Synthetic Invoice Full Flow (UI + API against ager.pl)', () 
           'Uruchom job migracyjny (infrastructure/k8s/00-migration-job.yaml) i ponów workflow.'
       );
     }
+    if (response.status() === 503 && body.reason === 'POLICY_GATE_MISSING') {
+      throw new Error(
+        `[DEPLOY ERROR] Brak zweryfikowanych rekordów polityk: ${JSON.stringify(body.missing_policies)}. ` +
+          'Seed polityk uruchamia job migracyjny w repozytorium aplikacji; sprawdź jego log.'
+      );
+    }
+    if (response.status() === 503 && body.reason === 'DATABASE_UNAVAILABLE') {
+      throw new Error(
+        '[DEPLOY ERROR] Aplikacja nie łączy się z bazą lub sprawdzenie gotowości rzuciło wyjątek. ' +
+          'Klasa wyjątku jest w logu poda aplikacji.'
+      );
+    }
     if (response.status() === 503 && body.reason === 'RUNTIME_ROLE_MEMBERSHIP_MISSING') {
       throw new Error(
         `[DEPLOY ERROR] Login aplikacji nie może przełączyć się na role: ${JSON.stringify(body.missing_roles)}. ` +

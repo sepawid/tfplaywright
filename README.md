@@ -177,6 +177,8 @@ Kroki zależą od siebie (token → szkic → zatwierdzenie), więc spec działa
 | :--- | :--- | :--- |
 | Krok 0b: `503 SCHEMA_PENDING_MIGRATION` | Schemat bazy jest starszy niż wdrożony kod; nie wykonała się migracja | Job migracyjny w repozytorium aplikacji (`jdg_nc_app`), po stronie właściciela wdrożenia |
 | Krok 1: `500` lub `503` | Błąd po stronie aplikacji lub bazy przy wydawaniu sesji demo | Log aplikacji; test niczego nie naprawia, tylko to wykrywa |
+| Krok 0b: `503 POLICY_GATE_MISSING` | Brak zweryfikowanych rekordów polityk (lista w `missing_policies`) | Log joba migracyjnego, który uruchamia seed polityk |
+| Krok 0b: `503 DATABASE_UNAVAILABLE` | Aplikacja nie łączy się z bazą | Log poda aplikacji (klasa wyjątku) |
 | Krok 0b: `503 RUNTIME_ROLE_MEMBERSHIP_MISSING` | Login aplikacji nie ma uprawnienia `SET` do wymienionych ról | `scripts/ops/grant_runtime_roles.sql` w repozytorium aplikacji, wykonuje administrator bazy |
 | Krok 0: nagłówek `X-App-Git-Sha` poza formatem 7–40 hex | Wdrożona wersja zgłasza inną wartość niż SHA commita | Wersja aplikacji, nie test |
 | Krok 0: `[WRONG VERSION]` | ager.pl serwuje inną wersję niż `EXPECTED_APP_SHA` | Poczekaj na koniec wdrożenia albo sprawdź, czy się powiodło |
