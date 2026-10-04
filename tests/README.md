@@ -94,5 +94,6 @@ TEST_DATABASE_URL="postgresql://user:pass@127.0.0.1:5432/jdg_test" npm run test:
 ## 5. Rygor Jakościowy w CI: Zero-Skipped i Sanityzacja Artefaktów
 
 Wszystkie przebiegi w GitHub Actions podlegają automatycznym bramkom jakości:
-- **`scripts/verify_test_results.js`:** Weryfikuje raport JUnit XML i wymusza zasadę **skip != pass**. Żaden test nie może zostać pominięty (`skipped === 0`).
+- **`scripts/verify_test_results.js`:** Weryfikuje raport JUnit XML i wymusza zasadę **skip != pass**. Żaden test nie może zostać pominięty (`skipped === 0`). Najpierw zgłasza awarie, a dopiero potem pominięcia, bo w trybie serial pominięte kroki są skutkiem pierwszej awarii.
+- **Testy skryptów CI:** `scripts/test_sanitize_artifacts.py` (`python3 -m unittest discover -s scripts -p 'test_*.py'`) i `scripts/verify_test_results.test.mjs` (`node --test scripts/verify_test_results.test.mjs`) uruchamia job read-only.
 - **`scripts/sanitize_artifacts.py`:** Przeszukuje wygenerowane raporty HTML oraz archiwa śladów `trace.zip`, bezpowrotnie maskując wszelkie wrażliwe tokeny sesji i nagłówki autoryzacyjne przed publikacją w publicznych artefaktach CI.

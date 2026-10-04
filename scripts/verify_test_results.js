@@ -94,16 +94,23 @@ function main() {
     process.exit(1);
   }
 
+  // Failures first: in serial mode one failure skips every later step, and the failure is
+  // the cause. Reporting the skips first pointed readers at the wrong thing.
+  if (results.failures > 0 || results.errors > 0) {
+    console.error(`\n[QUALITY GATE FAILED] Test run had ${results.failures} failure(s) and ${results.errors} error(s).`);
+    if (results.skipped > 0) {
+      console.error(
+        `Also ${results.skipped} skipped test(s): in serial mode these are steps after the first failure; fix the failure first.`
+      );
+    }
+    process.exit(1);
+  }
+
   // Invariant: skipped tests are NEVER reported as passed (skip != pass)
   if (results.skipped > 0) {
     console.error(`\n[SECURITY / QUALITY GATE FAILED] Detected ${results.skipped} skipped test(s)!`);
     console.error('RULE ENFORCEMENT: In this repository, skipped tests are NEVER reported as passed (skip != pass).');
     console.error('A skip indicates an unexecuted assertion, missing secret, or bypassed security check.');
-    process.exit(1);
-  }
-
-  if (results.failures > 0 || results.errors > 0) {
-    console.error(`\n[QUALITY GATE FAILED] Test run had ${results.failures} failure(s) and ${results.errors} error(s).`);
     process.exit(1);
   }
 

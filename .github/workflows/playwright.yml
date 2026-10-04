@@ -61,8 +61,10 @@ jobs:
       - name: Typecheck TypeScript
         run: npm run typecheck
 
-      - name: Unit tests of the CI scripts (sanitizer)
-        run: python3 -m unittest discover -s scripts -p 'test_*.py'
+      - name: Unit tests of the CI scripts (sanitizer, results gate)
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_*.py'
+          node --test scripts/verify_test_results.test.mjs
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
