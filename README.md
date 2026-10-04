@@ -1,6 +1,6 @@
 # Silnik Księgowy JDG — Framework Testowy Playwright dla ager.pl
 
-[![Playwright Tests](https://img.shields.io/badge/playwright-v1.50.0-green.svg)](https://playwright.dev/)
+[![Playwright Tests (ager.pl Demo)](https://github.com/sepawid/tfplaywright/actions/workflows/playwright.yml/badge.svg?branch=main)](https://github.com/sepawid/tfplaywright/actions/workflows/playwright.yml)
 [![Dostępność](https://img.shields.io/badge/a11y-WCAG%202.1%20AA%20(Axe--core)-blue.svg)](https://www.w3.org/WAI/standards-guidelines/wcag/)
 [![Środowisko Docelowe](https://img.shields.io/badge/%C5%9Brodowisko-https%3A%2F%2Fager.pl%20(Demo)-orange.svg)](https://ager.pl)
 [![Domenowe Niezmienniki](https://img.shields.io/badge/precyzja-Decimal%20ROUND__HALF__UP-blueviolet)](README.md)
@@ -81,7 +81,7 @@ tfplaywright/
     │   ├── api/
     │   │   └── public_api_demo.spec.ts # 5 testów: autoryzacja, idempotencja, usunięty endpoint, synthetic-session 403
     │   └── e2e/
-    │       └── live_synthetic_invoice.spec.ts  # Cykl życia faktury (Krok 0–8 + 0b gotowość /health/ready, tryb serial, GOLDEN-003, unikalny profil runId)
+    │       └── live_synthetic_invoice.spec.ts  # Cykl życia faktury (Krok 0–8 + 0b gotowość /health/ready, tryb serial, GOLDEN-003, runId w danych faktury)
     └── local_analysis/
         ├── api_accounting_vertical_slice.spec.ts  # Cykl życia szkicu + niezmienniki finansowe (PostgreSQL)
         └── invoices_vertical_slice.spec.ts        # Przekrój UI → API → PostgreSQL
@@ -135,7 +135,7 @@ Plik [`tests/specs/e2e/live_synthetic_invoice.spec.ts`](tests/specs/e2e/live_syn
 | **1** | Uzyskanie syntetycznej tożsamości | `POST /api/v1/demo/synthetic-session` | Token `synthetic-demo-[48 hex]`, rola przydzielona server-side |
 | **2** | Utworzenie szkicu faktury (GOLDEN-003) | `POST /api/v1/invoices` | Status `201`, `DRAFT`, kwoty `1000.00 / 230.00 / 1230.00` |
 | **3** | Walidacja strukturalna i obliczeniowa | `POST /validate` | `STRUCTURALLY_VALID`, fingerprint SHA-256 (64 znaki) |
-| **4** | Zatwierdzenie faktury przez właściciela | `POST /request-approval` | Status `APPROVED`, numer `FV/YYYY/MM/NNNN` |
+| **4** | Zatwierdzenie faktury przez właściciela | `POST /request-approval` | Status `APPROVED`, numer `FV/NNNN/MM/RRRR` (POLICY-053; dla szkicu z 2026-08-25: `FV/NNNN/08/2026`) |
 | **5** | Przeładowanie stanu (API + UI) | `GET /invoices/{id}` + `page.reload()` | Faktura widoczna w tabeli po odświeżeniu przeglądarki |
 | **6** | Uzgodnienie kwot (niezmiennik finansowy) | `GET /invoices/{id}` | Format `0.00`, `net + VAT = gross` w groszach liczonych na napisie i `BigInt`, bez `float` (100000 + 23000 = 123000) |
 | **7** | Odmowa dostępu | `GET /invoices/{id}` bez tokenu | `401 AUTHENTICATION_REQUIRED`, nieistniejący ID → `404` |
@@ -155,7 +155,7 @@ Identyfikator ten jest wstrzykiwany w nazwę nabywcy i pozycje faktury (np. `Tes
 ### Co test dowodzi?
 
 - Przejścia stanów `DRAFT → STRUCTURALLY_VALID → APPROVED` działają prawidłowo na żywym serwerze.
-- Kwoty `Decimal` są poprawnie obliczane i niezmiennik `netto + VAT = brutto` jest zachowany.
+- Dla przypadku GOLDEN-003 (jedna pozycja, 1000.00 netto, VAT 23%) API zwraca kwoty `1000.00 / 230.00 / 1230.00`, a niezmiennik `netto + VAT = brutto` zgadza się co do grosza. Ten przypadek nie wymaga zaokrąglenia, więc nie dowodzi reguły zaokrąglania (`ROUND_HALF_UP` sprawdzają testy jednostkowe aplikacji).
 - Po odświeżeniu przeglądarki (`page.reload()`) faktura jest persystentna — nie jest iluzją stanu React.
 - Bramki autoryzacji HTTP odrzucają zapytania bez tokenu.
 - Mechanizm idempotencji chroni przed duplikacją zapisów **i** wykrywa zmianę payloadu.
@@ -238,7 +238,7 @@ Plik [`.github/workflows/playwright.yml`](.github/workflows/playwright.yml) impl
 │  ✓ Dostęp do secrets.DEMO_SECRET w GitHub Environment   │
 │  ✓ Ściśle kontrolowane ALLOW_DEMO_MUTATIONS=true        │
 │  ✓ Pełny cykl życia faktury E2E (Krok 0–8, GOLDEN-003)  │
-│  ✓ Unikalny runId profilu syntetycznego (brak kolizji)  │
+│  ✓ Unikalny runId w danych faktury i kluczach idempot.  │
 │  ✓ Weryfikacja Zero-Skipped (scripts/verify_test_results)│
 │  ✓ Sanityzacja raportów i archiwów trace.zip            │
 └─────────────────────────────────────────────────────────┘

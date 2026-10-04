@@ -18,6 +18,10 @@ on:
         type: string
         default: ''
 
+# Read-only token: the workflow only checks out code and uploads artifacts.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false

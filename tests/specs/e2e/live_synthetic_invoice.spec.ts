@@ -194,7 +194,11 @@ test.describe('Live Synthetic Invoice Full Flow (UI + API against ager.pl)', () 
     expect(body.status).toBe('APPROVED');
     expect(body).toHaveProperty('invoice_id');
     expect(body).toHaveProperty('number');
-    expect(body.number).toMatch(/^FV\/\d{4}\/\d{2}\/\d{4}$/);
+    // POLICY-053 / GOLDEN-003: FV/{kolejny numer, min. 4 cyfry}/{MM}/{RRRR}, miesiąc i rok z issue_date
+    // szkicu (2026-08-25). Kolejność ma znaczenie: FV/2026/08/0001 to błąd, który ten regex odrzuca.
+    const numberMatch = /^FV\/(\d{4,})\/08\/2026$/.exec(body.number);
+    expect(numberMatch, `Numer faktury ${body.number} nie ma postaci FV/NNNN/08/2026`).not.toBeNull();
+    expect(Number(numberMatch![1])).toBeGreaterThan(0);
 
     approvedInvoiceId = body.invoice_id;
     approvedInvoiceNumber = body.number;
