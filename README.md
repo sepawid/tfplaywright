@@ -44,11 +44,11 @@ ALLOW_DEMO_MUTATIONS=true DEMO_SECRET=<sekret> npm run test:e2e
 
 | Polecenie | Zakres | Środowisko |
 | :--- | :--- | :--- |
-| `npm test` | Pełny zestaw: smoke + ui + api + e2e | `https://ager.pl` |
+| `npm test` | Domyślny zestaw tylko do odczytu: smoke + ui + api | `https://ager.pl` |
 | `npm run test:smoke` | Health, OpenAPI, Circuit Breaker (7 testów) | `https://ager.pl` |
 | `npm run test:ui` | Responsywność RWD + audyt WCAG 2.1 AA (Axe-core) | `https://ager.pl` |
 | `npm run test:api` | Kontrakty API, bramki autoryzacji, walidacja nagłówków | `https://ager.pl` |
-| `npm run test:e2e` | **Pełny cykl życia faktury** z mutacjami (wymaga `DEMO_SECRET`) | `https://ager.pl` |
+| `npm run test:e2e` | **Pełny cykl życia faktury** z mutacjami (wymaga `DEMO_SECRET` i `ALLOW_DEMO_MUTATIONS=true`) | `https://ager.pl` |
 | `npm run test:local-analysis` | Analiza kodu z prywatnego repo (wymaga `TEST_DATABASE_URL`) | Lokalny PostgreSQL |
 | `npm run report` | Interaktywny raport HTML z ostatniego uruchomienia | Lokalny serwer |
 | `npm run typecheck` | Ścisła weryfikacja typów TypeScript (`tsc --noEmit`) | Kompilator TS |
@@ -60,14 +60,17 @@ ALLOW_DEMO_MUTATIONS=true DEMO_SECRET=<sekret> npm run test:e2e
 ```text
 tfplaywright/
 ├── .github/workflows/
-│   └── playwright.yml               # CI: read-only smoke (zawsze) + mutujące E2E (tylko push/dispatch)
+│   └── playwright.yml               # CI: 2-poziomowy pipeline (read-only + live-mutating w environment: live-demo)
 ├── assets/                           # Zanonimizowane dowody wizualne z zarejestrowanych przebiegów
+├── scripts/
+│   ├── verify_test_results.js       # Bramka jakości Zero-Skipped: wymusza zasadę skip != pass
+│   └── sanitize_artifacts.py        # Sanityzacja raportów i trace.zip przed publikacją w publicznych artefaktach
 ├── playwright.config.ts              # Centralna konfiguracja: 5 projektów (smoke, ui, api, e2e, local-analysis)
-├── package.json                      # Zależności i 8 skryptów wykonawczych
+├── package.json                      # Zależności i skrypty wykonawcze
 ├── tsconfig.json                     # Ścisła konfiguracja TypeScript (ESNext/Bundler)
 └── tests/
     ├── fixtures/
-    │   ├── base.fixture.ts           # Fixtura z dynamicznym Circuit Breakerem per-request
+    │   ├── base.fixture.ts           # Fixtura z dynamicznym Circuit Breakerem (opt-in dla ager.pl)
     │   └── db-helper.ts              # Klient PostgreSQL dla testów głębokich niezmienników
     ├── specs/
     │   ├── smoke/
@@ -78,7 +81,7 @@ tfplaywright/
     │   ├── api/
     │   │   └── public_api_demo.spec.ts # 5 testów: autoryzacja, idempotencja, usunięty endpoint, synthetic-session 403
     │   └── e2e/
-    │       └── live_synthetic_invoice.spec.ts  # 8-krokowy cykl życia faktury (GOLDEN-003)
+    │       └── live_synthetic_invoice.spec.ts  # Cykl życia faktury (Krok 0–8, GOLDEN-003, unikalny profil runId)
     └── local_analysis/
         ├── api_accounting_vertical_slice.spec.ts  # Cykl życia szkicu + niezmienniki finansowe (PostgreSQL)
         └── invoices_vertical_slice.spec.ts        # Przekrój UI → API → PostgreSQL
@@ -86,13 +89,13 @@ tfplaywright/
 
 ### Projekty Playwright
 
-| Projekt | Katalog | Mutuje dane? | Wymaga sekretu? |
-| :--- | :--- | :--- | :--- |
-| `smoke` | `tests/specs/smoke/` | ❌ Nie | ❌ |
-| `ui` | `tests/specs/ui/` | ❌ Nie | ❌ |
-| `api` | `tests/specs/api/` | ❌ Nie (testuje odrzucenia) | ❌ |
-| `e2e` | `tests/specs/e2e/` | ✅ Tak (syntetyczne dane) | ✅ `DEMO_SECRET` |
-| `local-analysis` | `tests/local_analysis/` | ⚠️ Wymaga lokalnej bazy | ✅ `TEST_DATABASE_URL` |
+| Projekt | Katalog | Mutuje dane? | Wymaga sekretu? | Domyślnie włączony? |
+| :--- | :--- | :--- | :--- | :--- |
+| `smoke` | `tests/specs/smoke/` | ❌ Nie | ❌ | ✅ Tak (`npm test`) |
+| `ui` | `tests/specs/ui/` | ❌ Nie | ❌ | ✅ Tak (`npm test`) |
+| `api` | `tests/specs/api/` | ❌ Nie (testuje odrzucenia) | ❌ | ✅ Tak (`npm test`) |
+| `e2e` | `tests/specs/e2e/` | ✅ Tak (syntetyczne dane) | ✅ `DEMO_SECRET` | ⚠️ Strictly Opt-In (`ALLOW_DEMO_MUTATIONS=true`) |
+| `local-analysis` | `tests/local_analysis/` | ⚠️ Wymaga lokalnej bazy | ✅ `TEST_DATABASE_URL` | ❌ Ręcznie (`test:local-analysis`) |
 
 ---
 
@@ -102,29 +105,32 @@ Kluczowym elementem frameworka jest **Circuit Breaker** w [`tests/fixtures/base.
 
 ### Jak działa?
 
-1. **Biała lista:** Mutacje (`POST`, `PUT`, `DELETE`, `PATCH`) dozwolone wyłącznie do `127.0.0.1`, `localhost` i `ager.pl`.
-2. **Bezwzględna blokada obcych domen:** Każde żądanie do zewnętrznej domeny jest przerywane z wyjątkiem `[CIRCUIT BREAKER]` **przed nawiązaniem połączenia sieciowego**.
-3. **Ochrona przed przekierowaniami HTTP 307:** `maxRedirects: 0` + `redirect: 'error'` blokują podążanie za nagłówkami `Location` przy mutacjach.
-4. **Pokrycie kanałów:**
+1. **Izolacja lokalna:** Mutacje (`POST`, `PUT`, `DELETE`, `PATCH`) są dozwolone na interfejsach lokalnych `127.0.0.1` oraz `localhost`.
+2. **Ścisły Opt-In dla `ager.pl`:** Wszelkie mutacje na środowisku demonstracyjnym `https://ager.pl` są **domyślnie zablokowane**. Odblokowanie wymaga jawnej flagi `ALLOW_DEMO_MUTATIONS=true` oraz ważnego tokenu sesji syntetycznej (`DEMO_SECRET`).
+3. **Bezpieczne ścieżki negatywne:** Jawnie dozwolone są wybrane ścieżki sond negatywnych (testujące odrzucenia `403`/`404`/`400`: `/api/v1/demo/session`, `/api/v1/demo/synthetic-session` oraz `/validate`), co pozwala na weryfikację odmów bez ryzyka mutacji.
+4. **Bezwzględna blokada obcych domen:** Każde żądanie mutujące do obcej domeny jest natychmiast przerywane błędem `[CIRCUIT BREAKER]` **przed otwarciem socketu sieciowego**.
+5. **Ochrona przed przekierowaniami HTTP 307:** `maxRedirects: 0` + `redirect: 'error'` blokują podążanie za nagłówkami `Location` przy mutacjach.
+6. **Pokrycie kanałów:**
    - Playwright `request.post()`, `request.fetch()`,
    - Konteksty `page.request` i `page.context().request`,
    - `playwright.request.newContext()`,
    - Globalny procesowy `globalThis.fetch` (Node.js),
    - Żądania z przeglądarki (`page.route` → `abort('blockedbyclient')`).
-5. **Projekt smoke:** W projekcie `smoke` **wszystkie mutacje są zablokowane** niezależnie od hosta — nawet `localhost`.
+7. **Projekt smoke:** W projekcie `smoke` **wszystkie mutacje są zablokowane** niezależnie od hosta — nawet `localhost`.
 
 ### Dlaczego to ważne?
 
-Test Playwright z pełną przeglądarką ma potencjalnie nieograniczony dostęp sieciowy. Bez Circuit Breakera jeden błąd w URL-u testu mógłby spowodować wysłanie `POST` do systemu bankowego, bramki płatności lub produkcyjnego API. Bariera działa na zasadzie **fail-closed** — nieznane hosty są domyślnie zablokowane.
+Test Playwright z pełną przeglądarką ma potencjalnie nieograniczony dostęp sieciowy. Bez Circuit Breakera jeden błąd w URL-u testu mógłby spowodować wysłanie `POST` do systemu bankowego, bramki płatności lub produkcyjnego API. Bariera działa na zasadzie **fail-closed** — nieznane hosty i operacje bez jawnej zgody są zablokowane.
 
 ---
 
 ## 4. Testy E2E — Pełny Cykl Życia Faktury (GOLDEN-003)
 
-Plik [`tests/specs/e2e/live_synthetic_invoice.spec.ts`](tests/specs/e2e/live_synthetic_invoice.spec.ts) realizuje **8-krokowy test cyklu życia faktury** na żywym środowisku:
+Plik [`tests/specs/e2e/live_synthetic_invoice.spec.ts`](tests/specs/e2e/live_synthetic_invoice.spec.ts) realizuje **pełny cykl życia faktury (Krok 0–8)** na żywym środowisku:
 
 | Krok | Co testuje | Metoda HTTP | Kluczowa asercja |
 | :--- | :--- | :--- | :--- |
+| **0** | Weryfikacja wersji aplikacji i rejestracja SHA | `GET /health` | Status `200`, nagłówek `X-App-Git-Sha`, zapis do `app-sha.txt` |
 | **1** | Uzyskanie syntetycznej tożsamości | `POST /api/v1/demo/synthetic-session` | Token `synthetic-demo-[48 hex]`, rola przydzielona server-side |
 | **2** | Utworzenie szkicu faktury (GOLDEN-003) | `POST /api/v1/invoices` | Status `201`, `DRAFT`, kwoty `1000.00 / 230.00 / 1230.00` |
 | **3** | Walidacja strukturalna i obliczeniowa | `POST /validate` | `STRUCTURALLY_VALID`, fingerprint SHA-256 (64 znaki) |
@@ -133,6 +139,14 @@ Plik [`tests/specs/e2e/live_synthetic_invoice.spec.ts`](tests/specs/e2e/live_syn
 | **6** | Uzgodnienie kwot (niezmiennik finansowy) | `GET /invoices/{id}` | `net + VAT = gross` w groszach (100000 + 23000 = 123000) |
 | **7** | Odmowa dostępu | `GET /invoices/{id}` bez tokenu | `401 AUTHENTICATION_REQUIRED`, nieistniejący ID → `404` |
 | **8** | Idempotencja i konflikt payloadu | `POST /request-approval` (replay) | Ten sam wynik 200; zmieniony payload → `409 IDEMPOTENCY_KEY_CONFLICT` |
+
+### Izolacja Danych i Dynamiczne Profile Syntetyczne
+
+Każde uruchomienie testu generuje unikalny identyfikator przebiegu:
+```typescript
+const runId = crypto.randomUUID().slice(0, 8);
+```
+Identyfikator ten jest wstrzykiwany w nazwę nabywcy i pozycje faktury (`Nabywca Syntetyczny ${runId}`). Zapobiega to kolizjom identyfikatorów przy współbieżnych lub wielokrotnych uruchomieniach testów na instancji demonstracyjnej.
 
 ### Co test dowodzi?
 
@@ -182,28 +196,41 @@ Nowy mechanizm:
 
 ## 7. Pipeline CI — Rozdzielenie Read-Only od Mutacji
 
-Plik [`.github/workflows/playwright.yml`](.github/workflows/playwright.yml) implementuje **dwupoziomowy pipeline:**
+Plik [`.github/workflows/playwright.yml`](.github/workflows/playwright.yml) implementuje **dwupoziomowy pipeline bezpieczeństwa:**
 
 ```text
 ┌─────────────────────────────────────────────────────────┐
-│ ZAWSZE (push + pull_request + workflow_dispatch)        │
+│ POZIOM 1: read-only                                     │
+│ Wyzwalacze: push + pull_request + workflow_dispatch     │
 │                                                         │
-│  ✓ TypeScript typecheck                                 │
+│  ✓ Skan bezpieczeństwa gitleaks (pełna historia git)    │
+│  ✓ Weryfikacja typów TypeScript (tsc --noEmit)          │
 │  ✓ Smoke tests (health, OpenAPI, UI, Circuit Breaker)   │
-│  ✓ API contract tests (autoryzacja, idempotencja, 403)  │
+│  ✓ Kontrakty API (brak tokenu, fałszywy Bearer, 403)    │
+│  ✓ Odczyt i rejestracja nagłówka X-App-Git-Sha          │
+│  ✓ Weryfikacja Zero-Skipped (scripts/verify_test_results)│
+│  ✓ Sanityzacja raportów (scripts/sanitize_artifacts)    │
 └─────────────────────────────────────────────────────────┘
-
+                            │
+                            ▼ (sukces Poziomu 1)
 ┌─────────────────────────────────────────────────────────┐
-│ TYLKO push do main + workflow_dispatch (NIGDY w PR)     │
+│ POZIOM 2: live-mutating (environment: live-demo)        │
+│ Wyzwalacze: push do main LUB dispatch(run_mutating=true)│
 │                                                         │
-│  ✓ E2E mutujące (live_synthetic_invoice.spec.ts)        │
-│    → wymaga secrets.DEMO_SECRET w repozytorium          │
-│    → tworzy syntetyczne dane na ager.pl                 │
-│    → pomijane automatycznie jeśli sekret niedostępny    │
+│  ✓ Dostęp do secrets.DEMO_SECRET w GitHub Environment   │
+│  ✓ Ściśle kontrolowane ALLOW_DEMO_MUTATIONS=true        │
+│  ✓ Pełny cykl życia faktury E2E (Krok 0–8, GOLDEN-003)  │
+│  ✓ Unikalny runId profilu syntetycznego (brak kolizji)  │
+│  ✓ Weryfikacja Zero-Skipped (scripts/verify_test_results)│
+│  ✓ Sanityzacja raportów i archiwów trace.zip            │
 └─────────────────────────────────────────────────────────┘
 ```
 
-**Dlaczego?** Pull requesty od zewnętrznych współpracowników (`pull_request`) nie mają dostępu do `secrets.DEMO_SECRET`. Bezpieczne jest uruchomienie testów read-only w każdym PR, ale mutujące E2E dopuszczamy dopiero po merge do `main` (zaufane zdarzenie).
+### Dlaczego dwupoziomowy pipeline?
+
+- **Ochrona sekretów i środowiska:** Pull requesty z zewnętrznych gałęzi / forków nie mają dostępu do `secrets.DEMO_SECRET` ani środowiska `environment: live-demo`. Wykonują wyłącznie Poziom 1 (read-only).
+- **Zasada Zero-Skipped (`skip != pass`):** W procesach CI pominięcie testu z powodu braku konfiguracji nie może być traktowane jako sukces. Skrypt `verify_test_results.js` bezwzględnie weryfikuje raport JUnit XML i odrzuca build, jeśli `skipped > 0`.
+- **Sanityzacja artefaktów:** Skrypt `sanitize_artifacts.py` eliminuje ryzyko przypadkowego ujawnienia tokenów `synthetic-demo-*` czy sekretów w publicznie pobieranych archiwach zip z raportami Playwright.
 
 ---
 
@@ -313,7 +340,7 @@ To publiczne repozytorium jest **prezentacją** — kod źródłowy aplikacji zn
 | `DEMO_SECRET` | ✅ dla `test:e2e` | Sekret do endpointu `/api/v1/demo/synthetic-session` |
 | `DEMO_TEST_TOKEN` | ⚠️ alternatywa `DEMO_SECRET` | Alias sekretu (obsługiwany dla kompatybilności) |
 | `TEST_DATABASE_URL` | ✅ dla `test:local-analysis` | Connection string PostgreSQL (`postgresql://...`) |
-| `ALLOW_DEMO_MUTATIONS` | ❌ (domyślnie `true`) | Ustawienie na `false` blokuje mutacje na ager.pl |
+| `ALLOW_DEMO_MUTATIONS` | ❌ (domyślnie `false`) | Wymaga jawnego `true`, aby odblokować mutacje na `ager.pl` |
 
 ---
 

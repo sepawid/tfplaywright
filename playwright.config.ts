@@ -58,12 +58,16 @@ export default defineConfig({
           },
         ]
       : []),
-    {
-      name: 'local-analysis',
-      testDir: './tests/local_analysis',
-      use: {
-        baseURL,
-      },
-    },
+    ...(process.env.TEST_DATABASE_URL
+      ? [
+          {
+            name: 'local-analysis',
+            testDir: './tests/local_analysis',
+            use: {
+              baseURL,
+            },
+          },
+        ]
+      : []),
   ],
 });
