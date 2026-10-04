@@ -4,6 +4,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 test.describe('Live Synthetic Invoice Full Flow (UI + API against ager.pl)', () => {
+  // Kroki zależą od siebie (token → szkic → zatwierdzenie). Tryb serial przerywa przebieg
+  // przy pierwszym błędzie, zamiast generować kaskadę wtórnych awarii (HTTP 422 na "undefined").
+  test.describe.configure({ mode: 'serial' });
+
   const demoSecret = process.env.DEMO_SECRET || process.env.DEMO_TEST_TOKEN;
 
   test.beforeAll(() => {
@@ -46,6 +50,20 @@ test.describe('Live Synthetic Invoice Full Flow (UI + API against ager.pl)', () 
     } catch (err) {
       console.warn(`[WARN] Could not write app-sha.txt: ${err}`);
     }
+  });
+
+  // 0b. Gotowość aplikacji: schemat bazy musi odpowiadać wdrożonemu kodowi (AUTO-009)
+  test('Krok 0b: Gotowość aplikacji (/health/ready) — schemat bazy zgodny z wdrożonym kodem', async ({ request }) => {
+    const response = await request.get('/health/ready');
+    const body = await response.json().catch(() => ({}));
+    if (response.status() === 503 && body.reason === 'SCHEMA_PENDING_MIGRATION') {
+      throw new Error(
+        `[DEPLOY ERROR] Schemat bazy czeka na migrację (baza: ${body.schema_current}, oczekiwana: ${body.schema_expected}). ` +
+          'Uruchom job migracyjny (infrastructure/k8s/00-migration-job.yaml) i ponów workflow.'
+      );
+    }
+    expect(response.status(), `Readiness: ${JSON.stringify(body)}`).toBe(200);
+    expect(body.status).toBe('ready');
   });
 
   // 1. Syntetyczna tożsamość

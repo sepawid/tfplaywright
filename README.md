@@ -81,7 +81,7 @@ tfplaywright/
     │   ├── api/
     │   │   └── public_api_demo.spec.ts # 5 testów: autoryzacja, idempotencja, usunięty endpoint, synthetic-session 403
     │   └── e2e/
-    │       └── live_synthetic_invoice.spec.ts  # Cykl życia faktury (Krok 0–8, GOLDEN-003, unikalny profil runId)
+    │       └── live_synthetic_invoice.spec.ts  # Cykl życia faktury (Krok 0–8 + 0b gotowość /health/ready, tryb serial, GOLDEN-003, unikalny profil runId)
     └── local_analysis/
         ├── api_accounting_vertical_slice.spec.ts  # Cykl życia szkicu + niezmienniki finansowe (PostgreSQL)
         └── invoices_vertical_slice.spec.ts        # Przekrój UI → API → PostgreSQL

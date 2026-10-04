@@ -27,7 +27,7 @@ tests/
 │   ├── api/
 │   │   └── public_api_demo.spec.ts # 5 kontraktów API: brak autoryzacji, fałszywy token, usunięty /demo/session
 │   └── e2e/
-│       └── live_synthetic_invoice.spec.ts # Cykl życia faktury (Krok 0–8, GOLDEN-003, izolacja runId)
+│       └── live_synthetic_invoice.spec.ts # Cykl życia faktury (Krok 0–8 + 0b gotowość /health/ready, tryb serial, GOLDEN-003, izolacja runId)
 └── local_analysis/          # KOD REFERENCYJNY Z PRYWATNEGO REPOZYTORIUM
     ├── api_accounting_vertical_slice.spec.ts  # Cykl życia szkicu + niezmienniki finansowe (PostgreSQL)
     └── invoices_vertical_slice.spec.ts        # Przekrój UI → API → PostgreSQL (RLS, immutability)
