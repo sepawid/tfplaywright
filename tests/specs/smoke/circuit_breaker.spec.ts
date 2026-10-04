@@ -1,8 +1,5 @@
 /**
- * KOD DO ANALIZY — NIE JEST SAMODZIELNIE URUCHAMIALNY W TYM REPOZYTORIUM
- *
- * Źródło: sepawid/jdg_nc_app @ commit d4776d7
- * Rola: Zestaw negatywnych testów sprawdzających barierę Circuit Breaker:
+ * Zestaw negatywnych testów sprawdzających barierę Circuit Breaker:
  * 1. Blokada bezpośrednich wywołań mutujących request.post i request.fetch.
  * 2. Blokada mutacji inicjowanych z kodu przeglądarki (page.route abort: blockedbyclient).
  * 3. Blokada wywołań mutujących pod pełne zewnętrzne adresy URL na poziomie pojedynczych zapytań.

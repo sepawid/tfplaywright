@@ -6,12 +6,22 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      run_mutating:
+        description: 'Run mutating live E2E showcase against ager.pl (opt-in)'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  test:
-    name: Run Playwright E2E & Smoke
+  read-only:
+    name: Read-Only Smoke, UI & Contract Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
@@ -37,7 +47,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci || npm install
+        run: npm ci
 
       - name: Typecheck TypeScript
         run: npm run typecheck
@@ -45,32 +55,106 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Run Read-Only Smoke & Contract Tests
+      - name: Record Target Application Git SHA
         env:
           PLAYWRIGHT_BASE_URL: https://ager.pl
+        run: |
+          set -euo pipefail
+          APP_SHA=$(curl -s -i "${PLAYWRIGHT_BASE_URL}/health" | grep -i "x-app-git-sha:" | awk '{print $2}' | tr -d '\r\n' || echo "unknown")
+          echo "APP_SHA=$APP_SHA" >> "$GITHUB_ENV"
+          echo "### Target Application Version" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Base URL:** \`${PLAYWRIGHT_BASE_URL}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Application Git SHA:** \`${APP_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "[TARGET APP] Base URL: ${PLAYWRIGHT_BASE_URL}, Git SHA: ${APP_SHA}"
+
+      - name: Run Read-Only Smoke, UI & Contract Tests
+        env:
+          PLAYWRIGHT_BASE_URL: https://ager.pl
+          ALLOW_DEMO_MUTATIONS: 'false'
         run: npx playwright test tests/specs/smoke tests/specs/ui/responsive_breakpoints.spec.ts tests/specs/api/public_api_demo.spec.ts
 
-      - name: Validate DEMO_SECRET for Live E2E (Fail-Closed)
-        if: ${{ github.event_name != 'pull_request' }}
-        env:
-          DEMO_SECRET: ${{ secrets.DEMO_SECRET }}
-        run: |
-          if [ -z "$DEMO_SECRET" ]; then
-            echo "::error::[SECURITY GATE ERROR] secrets.DEMO_SECRET nie jest skonfigurowany w repozytorium GitHub Actions. Zaufany przebieg mutujący nie może zostać uruchomiony bez sekretu."
-            exit 1
-          fi
+      - name: Verify Test Results (Zero Skipped Policy)
+        run: node scripts/verify_test_results.js
 
-      - name: Run Live E2E Mutating Tests (Trusted Events Only)
-        if: ${{ github.event_name != 'pull_request' }}
-        env:
-          PLAYWRIGHT_BASE_URL: https://ager.pl
-          DEMO_SECRET: ${{ secrets.DEMO_SECRET }}
-        run: npx playwright test tests/specs/e2e/live_synthetic_invoice.spec.ts
+      - name: Sanitize Artifacts (Scrub Traces & Secrets)
+        if: always()
+        run: python3 scripts/sanitize_artifacts.py
 
-      - name: Upload Playwright Report
+      - name: Upload Read-Only Playwright Report
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: playwright-report
+          name: playwright-report-read-only
           path: playwright-report/
-          retention-days: 30
+          retention-days: 14
+
+  live-mutating:
+    name: Live Mutating E2E Showcase (Trusted Events Only)
+    needs: read-only
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.run_mutating == true)
+    environment: live-demo
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Validate DEMO_SECRET for Live E2E (Fail-Closed)
+        env:
+          DEMO_SECRET: ${{ secrets.DEMO_SECRET }}
+        run: |
+          if [ -z "${DEMO_SECRET:-}" ]; then
+            echo "::error::[SECURITY GATE ERROR] secrets.DEMO_SECRET is not configured in environment 'live-demo'. Live mutating E2E requires a valid secret."
+            exit 1
+          fi
+
+      - name: Record Target Application Git SHA
+        env:
+          PLAYWRIGHT_BASE_URL: https://ager.pl
+        run: |
+          set -euo pipefail
+          APP_SHA=$(curl -s -i "${PLAYWRIGHT_BASE_URL}/health" | grep -i "x-app-git-sha:" | awk '{print $2}' | tr -d '\r\n' || echo "unknown")
+          echo "APP_SHA=$APP_SHA" >> "$GITHUB_ENV"
+          echo "### Live Mutating E2E Showcase" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Base URL:** \`${PLAYWRIGHT_BASE_URL}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Application Git SHA:** \`${APP_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "[TARGET APP] Live Mutating E2E on Git SHA: ${APP_SHA}"
+
+      - name: Run Live E2E Mutating Showcase (Synthetic Invoice)
+        env:
+          PLAYWRIGHT_BASE_URL: https://ager.pl
+          ALLOW_DEMO_MUTATIONS: 'true'
+          DEMO_SECRET: ${{ secrets.DEMO_SECRET }}
+        run: npx playwright test tests/specs/e2e/live_synthetic_invoice.spec.ts
+
+      - name: Verify Test Results (Zero Skipped Policy)
+        run: node scripts/verify_test_results.js
+
+      - name: Sanitize Artifacts (Scrub Traces & Secrets)
+        if: always()
+        env:
+          DEMO_SECRET: ${{ secrets.DEMO_SECRET }}
+        run: python3 scripts/sanitize_artifacts.py
+
+      - name: Upload Mutating Playwright Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-mutating
+          path: playwright-report/
+          retention-days: 14

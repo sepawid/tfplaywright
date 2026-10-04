@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'https://ager.pl';
+const isMutatingAllowed = process.env.ALLOW_DEMO_MUTATIONS === 'true';
 
 export default defineConfig({
   testDir: './tests/specs',
@@ -19,6 +20,8 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },
+  // W domyślnym przebiegu (npx playwright test) uruchamiane są WYŁĄCZNIE testy tylko do odczytu:
+  // smoke, ui oraz api. Projekt mutujący 'e2e' jest strictly opt-in (ALLOW_DEMO_MUTATIONS=true).
   projects: [
     {
       name: 'smoke',
@@ -43,14 +46,18 @@ export default defineConfig({
         baseURL,
       },
     },
-    {
-      name: 'e2e',
-      testDir: './tests/specs/e2e',
-      use: {
-        ...devices['Desktop Chrome'],
-        baseURL,
-      },
-    },
+    ...(isMutatingAllowed
+      ? [
+          {
+            name: 'e2e',
+            testDir: './tests/specs/e2e',
+            use: {
+              ...devices['Desktop Chrome'],
+              baseURL,
+            },
+          },
+        ]
+      : []),
     {
       name: 'local-analysis',
       testDir: './tests/local_analysis',

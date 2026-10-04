@@ -1,10 +1,6 @@
 /**
- * KOD DO ANALIZY — NIE JEST SAMODZIELNIE URUCHAMIALNY W TYM REPOZYTORIUM
- *
- * Źródło: sepawid/jdg_nc_app @ commit d4776d7
- * Rola: Fixtura bazowa Playwright rozszerzająca kontekst testowy o Circuit Breaker.
- * Blokuje wszelkie żądania mutujące (POST, PUT, DELETE, PATCH) poza interfejsem loopback (127.0.0.1 / localhost),
- * chroniąc przed przypadkowym uderzeniem w środowiska zewnętrzne lub stagingowe.
+ * Fixtura bazowa Playwright dla testów ager.pl z dynamicznym Circuit Breakerem.
+ * Mutacje przeciwko ager.pl są strictly opt-in (wymagają ALLOW_DEMO_MUTATIONS=true).
  */
 
 import { test as base, expect, APIRequestContext } from '@playwright/test';
@@ -24,12 +20,25 @@ export function isProtectedUrl(url: URL | string, baseURL?: string): boolean {
   try {
     const parsed = typeof url === 'string' ? resolveTargetUrl(url, baseURL) : url;
     const host = parsed.hostname.toLowerCase();
-    // Dozwolone do mutacji są interfejs loopback oraz publiczne środowisko demonstracyjne ager.pl
+    // Dozwolone do mutacji są interfejs loopback
     if (host === '127.0.0.1' || host === 'localhost') {
       return false;
     }
-    if ((host === 'ager.pl' || host === 'www.ager.pl') && process.env.ALLOW_DEMO_MUTATIONS !== 'false') {
+    // Publiczne środowisko demonstracyjne ager.pl jest dozwolone do mutacji
+    // WYŁĄCZNIE przy jawnym, zaufanym opt-in (ALLOW_DEMO_MUTATIONS=true).
+    if ((host === 'ager.pl' || host === 'www.ager.pl') && process.env.ALLOW_DEMO_MUTATIONS === 'true') {
       return false;
+    }
+    // Odpytania sprawdzające odmowę (404/403/400) w testach kontraktowych nie mutują stanu bazy
+    if (host === 'ager.pl' || host === 'www.ager.pl') {
+      const pathname = parsed.pathname;
+      if (
+        pathname === '/api/v1/demo/session' ||
+        pathname === '/api/v1/demo/synthetic-session' ||
+        pathname.endsWith('/validate')
+      ) {
+        return false;
+      }
     }
     // Każdy inny host (np. chroniona-domena-zewnetrzna.pl, domeny publiczne, staging) jest BEZWZGLĘDNIE chroniony
     return true;

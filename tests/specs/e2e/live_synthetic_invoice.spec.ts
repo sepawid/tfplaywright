@@ -1,5 +1,7 @@
 import { test, expect } from '../../fixtures/base.fixture';
 import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 
 test.describe('Live Synthetic Invoice Full Flow (UI + API against ager.pl)', () => {
   const demoSecret = process.env.DEMO_SECRET || process.env.DEMO_TEST_TOKEN;
@@ -19,11 +21,32 @@ test.describe('Live Synthetic Invoice Full Flow (UI + API against ager.pl)', () 
   let approvedInvoiceId: string;
   let approvedInvoiceNumber: string;
 
-  // Unikalne klucze idempotencji dla każdego kroku
+  // Unikalny identyfikator przebiegu E2E gwarantujący nowy profil syntetyczny
   const runId = crypto.randomUUID().slice(0, 8);
   const createIdempotencyKey = `e2e-create-${runId}`;
   const validateIdempotencyKey = `e2e-validate-${runId}`;
   const approveIdempotencyKey = `e2e-approve-${runId}`;
+
+  // 0. Weryfikacja wersji aplikacji i rejestracja SHA
+  test('Krok 0: Weryfikacja wersji aplikacji (/health) i rejestracja skrótu Git SHA', async ({ request }, testInfo) => {
+    const response = await request.get('/health');
+    expect(response.status()).toBe(200);
+    const shaHeader = response.headers()['x-app-git-sha'] || 'unknown';
+    expect(shaHeader).toMatch(/^[0-9a-fA-F]{7,40}$|^unknown$/);
+
+    testInfo.annotations.push({ type: 'App-Git-Sha', description: shaHeader });
+    console.log(`[E2E REPORT] Target Application Git SHA: ${shaHeader}`);
+
+    try {
+      const reportDir = path.resolve(process.cwd(), 'playwright-report');
+      if (!fs.existsSync(reportDir)) {
+        fs.mkdirSync(reportDir, { recursive: true });
+      }
+      fs.writeFileSync(path.join(reportDir, 'app-sha.txt'), shaHeader, 'utf-8');
+    } catch (err) {
+      console.warn(`[WARN] Could not write app-sha.txt: ${err}`);
+    }
+  });
 
   // 1. Syntetyczna tożsamość
   test('Krok 1: Uzyskanie syntetycznej tożsamości demonstracyjnej przez kontrolowany nagłówek X-Demo-Secret', async ({
@@ -45,19 +68,19 @@ test.describe('Live Synthetic Invoice Full Flow (UI + API against ager.pl)', () 
     businessId = body.business_id;
   });
 
-  // 2. Utworzenie szkicu (GOLDEN-003)
+  // 2. Utworzenie szkicu (GOLDEN-003) z unikalnym profilem syntetycznym
   test('Krok 2: Utworzenie szkicu faktury sprzedaży (GOLDEN-003) z nagłówkiem Idempotency-Key', async ({ request }) => {
     const payload = {
       issue_date: '2026-08-25',
       sale_date: '2026-08-25',
       counterparty_snapshot: {
-        legal_name: 'Testowy Nabywca Sp. z o.o.',
+        legal_name: `Testowy Nabywca Sp. z o.o. [E2E-${runId}]`,
         nip: '9876543210',
-        address: 'ul. Demonstracyjna 42, 00-001 Warszawa',
+        address: `ul. Demonstracyjna 42/${runId}, 00-001 Warszawa`,
         country_code: 'PL',
       },
       seller_snapshot: {
-        legal_name: 'Moja Firma JDG (Demo)',
+        legal_name: `Moja Firma JDG (Demo-${runId})`,
         nip: '5252248481',
       },
       currency: 'PLN',
@@ -65,7 +88,7 @@ test.describe('Live Synthetic Invoice Full Flow (UI + API against ager.pl)', () 
       lines: [
         {
           line_number: 1,
-          description: 'Usługi doradztwa technologicznego (Syntetyczny przebieg GOLDEN-003)',
+          description: `Usługi doradztwa technologicznego (Syntetyczny przebieg GOLDEN-003 [${runId}])`,
           quantity: '1.0000',
           unit: 'szt.',
           unit_price_net: '1000.00',

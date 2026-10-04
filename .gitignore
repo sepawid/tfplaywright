@@ -16,3 +16,8 @@ test-results/
 playwright-report/
 node_modules/
 
+
+# Python
+__pycache__/
+*.pyc
+

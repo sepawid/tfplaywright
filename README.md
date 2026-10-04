@@ -31,12 +31,13 @@ npm install
 # 3. Instalacja silnika przeglądarki Chromium
 npx playwright install --with-deps chromium
 
-# 4. Wykonanie testów tylko-do-odczytu (smoke + API contracts)
-npm test:smoke
-npm test:api
+# 4. Wykonanie testów tylko-do-odczytu (smoke + UI + API contracts)
+npm run test:smoke
+npm run test:ui
+npm run test:api
 
-# 5. Pełny zestaw E2E z mutacjami (wymaga DEMO_SECRET)
-DEMO_SECRET=<sekret> npm run test:e2e
+# 5. Pełny zestaw E2E z mutacjami (wymaga DEMO_SECRET i jawnego ALLOW_DEMO_MUTATIONS=true)
+ALLOW_DEMO_MUTATIONS=true DEMO_SECRET=<sekret> npm run test:e2e
 ```
 
 ### Dostępne Skrypty npm
