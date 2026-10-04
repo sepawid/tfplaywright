@@ -225,9 +225,17 @@ test.describe('Live Synthetic Invoice Full Flow (UI + API against ager.pl)', () 
     expect(response.status()).toBe(200);
     const inv = await response.json();
 
-    const netCents = Math.round(parseFloat(inv.net_total) * 100);
-    const vatCents = Math.round(parseFloat(inv.vat_total) * 100);
-    const grossCents = Math.round(parseFloat(inv.gross_total) * 100);
+    // Kwoty przychodzą jako napisy dziesiętne ("1230.00"). Zamiana na grosze odbywa się na napisie
+    // i BigInt, bez parseFloat: test nie może sam wprowadzić błędu zmiennoprzecinkowego, który ma wykrywać.
+    const toCents = (amount: string): bigint => {
+      expect(amount, `Kwota musi mieć postać 0.00: ${amount}`).toMatch(/^-?\d+\.\d{2}$/);
+      const negative = amount.startsWith('-');
+      const cents = BigInt(amount.replace('-', '').replace('.', ''));
+      return negative ? -cents : cents;
+    };
+    const netCents = toCents(inv.net_total);
+    const vatCents = toCents(inv.vat_total);
+    const grossCents = toCents(inv.gross_total);
 
     // Precyzyjne uzgodnienie groszy: 100000 + 23000 = 123000
     expect(netCents + vatCents).toBe(grossCents);

@@ -137,7 +137,7 @@ Plik [`tests/specs/e2e/live_synthetic_invoice.spec.ts`](tests/specs/e2e/live_syn
 | **3** | Walidacja strukturalna i obliczeniowa | `POST /validate` | `STRUCTURALLY_VALID`, fingerprint SHA-256 (64 znaki) |
 | **4** | Zatwierdzenie faktury przez właściciela | `POST /request-approval` | Status `APPROVED`, numer `FV/YYYY/MM/NNNN` |
 | **5** | Przeładowanie stanu (API + UI) | `GET /invoices/{id}` + `page.reload()` | Faktura widoczna w tabeli po odświeżeniu przeglądarki |
-| **6** | Uzgodnienie kwot (niezmiennik finansowy) | `GET /invoices/{id}` | `net + VAT = gross` w groszach (100000 + 23000 = 123000) |
+| **6** | Uzgodnienie kwot (niezmiennik finansowy) | `GET /invoices/{id}` | Format `0.00`, `net + VAT = gross` w groszach liczonych na napisie i `BigInt`, bez `float` (100000 + 23000 = 123000) |
 | **7** | Odmowa dostępu | `GET /invoices/{id}` bez tokenu | `401 AUTHENTICATION_REQUIRED`, nieistniejący ID → `404` |
 | **8** | Idempotencja i konflikt payloadu | `POST /request-approval` (replay) | Ten sam wynik 200; zmieniony payload → `409 IDEMPOTENCY_KEY_CONFLICT` |
 
