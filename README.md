@@ -130,7 +130,8 @@ Plik [`tests/specs/e2e/live_synthetic_invoice.spec.ts`](tests/specs/e2e/live_syn
 
 | Krok | Co testuje | Metoda HTTP | Kluczowa asercja |
 | :--- | :--- | :--- | :--- |
-| **0** | Weryfikacja wersji aplikacji i rejestracja SHA | `GET /health` | Status `200`, nagłówek `X-App-Git-Sha`, zapis do `app-sha.txt` |
+| **0** | Weryfikacja wersji aplikacji i rejestracja SHA | `GET /health` | Status `200`, nagłówek `X-App-Git-Sha` w formacie 7–40 znaków hex (albo `unknown`), zapis do `app-sha.txt` |
+| **0b** | Gotowość aplikacji i zgodność schematu bazy | `GET /health/ready` | Status `200`, `status: ready`. `503 SCHEMA_PENDING_MIGRATION` kończy test błędem z rewizjami bazy i kodu |
 | **1** | Uzyskanie syntetycznej tożsamości | `POST /api/v1/demo/synthetic-session` | Token `synthetic-demo-[48 hex]`, rola przydzielona server-side |
 | **2** | Utworzenie szkicu faktury (GOLDEN-003) | `POST /api/v1/invoices` | Status `201`, `DRAFT`, kwoty `1000.00 / 230.00 / 1230.00` |
 | **3** | Walidacja strukturalna i obliczeniowa | `POST /validate` | `STRUCTURALLY_VALID`, fingerprint SHA-256 (64 znaki) |
@@ -140,13 +141,16 @@ Plik [`tests/specs/e2e/live_synthetic_invoice.spec.ts`](tests/specs/e2e/live_syn
 | **7** | Odmowa dostępu | `GET /invoices/{id}` bez tokenu | `401 AUTHENTICATION_REQUIRED`, nieistniejący ID → `404` |
 | **8** | Idempotencja i konflikt payloadu | `POST /request-approval` (replay) | Ten sam wynik 200; zmieniony payload → `409 IDEMPOTENCY_KEY_CONFLICT` |
 
-### Izolacja Danych i Dynamiczne Profile Syntetyczne
+### Izolacja Danych (runId)
 
 Każde uruchomienie testu generuje unikalny identyfikator przebiegu:
 ```typescript
 const runId = crypto.randomUUID().slice(0, 8);
 ```
-Identyfikator ten jest wstrzykiwany w nazwę nabywcy i pozycje faktury (`Nabywca Syntetyczny ${runId}`). Zapobiega to kolizjom identyfikatorów przy współbieżnych lub wielokrotnych uruchomieniach testów na instancji demonstracyjnej.
+Identyfikator ten jest wstrzykiwany w nazwę nabywcy i pozycje faktury (np. `Testowy Nabywca Sp. z o.o. [E2E-${runId}]`) oraz w klucze `Idempotency-Key`. Dzięki temu kolejne przebiegi nie kolidują ze sobą na instancji demonstracyjnej.
+
+> [!NOTE]
+> `runId` rozróżnia **dane faktury i klucze idempotencji**, a nie profil firmy. `POST /api/v1/demo/synthetic-session` zawsze wystawia token dla jednego, stałego syntetycznego profilu demonstracyjnego, więc wszystkie przebiegi współdzielą tę firmę.
 
 ### Co test dowodzi?
 
@@ -162,6 +166,18 @@ Identyfikator ten jest wstrzykiwany w nazwę nabywcy i pozycje faktury (`Nabywca
 - Poprawności reguł RLS na poziomie bazy danych.
 - Że reguły podatkowe są zgodne z aktualnym stanem prawnym (wymaga audytu ludzkiego).
 - Działania na bazach innych niż PostgreSQL.
+
+### Przerwanie przebiegu i Zero-Skipped
+
+Kroki zależą od siebie (token → szkic → zatwierdzenie), więc spec działa w trybie `serial`: pierwsza awaria przerywa przebieg zamiast generować kaskadę wtórnych błędów. Pominięte kroki trafiają do raportu JUnit jako `skipped`, a `verify_test_results.js` liczy je jako porażkę (skip ≠ pass). Przy awarii kroku 1 zobaczysz więc „1 failed, 7 did not run" i to jest zamierzone. Przyczyną jest ten pierwszy błąd.
+
+### Co oznaczają typowe awarie na początku przebiegu
+
+| Objaw | Znaczenie | Gdzie szukać naprawy |
+| :--- | :--- | :--- |
+| Krok 0b: `503 SCHEMA_PENDING_MIGRATION` | Schemat bazy jest starszy niż wdrożony kod; nie wykonała się migracja | Job migracyjny w repozytorium aplikacji (`jdg_nc_app`), po stronie właściciela wdrożenia |
+| Krok 1: `500` lub `503` | Błąd po stronie aplikacji lub bazy przy wydawaniu sesji demo | Log aplikacji; test niczego nie naprawia, tylko to wykrywa |
+| Krok 0: nagłówek `X-App-Git-Sha` poza formatem 7–40 hex | Wdrożona wersja zgłasza inną wartość niż SHA commita | Wersja aplikacji, nie test |
 
 ---
 
@@ -250,7 +266,7 @@ Plik [`.github/workflows/playwright.yml`](.github/workflows/playwright.yml) impl
 | **Float drift / błędy zaokrągleń** | **net + VAT = gross (Decimal)** | [`live_synthetic_invoice.spec.ts`](tests/specs/e2e/live_synthetic_invoice.spec.ts) **Krok 6** | `100000 + 23000 = 123000` (grosze) | ✅ Dowodzi niezmiennika na żywym API. ❌ Nie dowodzi typów NUMERIC w PostgreSQL. |
 | **Iluzja stanu w React** | **Persystencja po reload()** | [`live_synthetic_invoice.spec.ts`](tests/specs/e2e/live_synthetic_invoice.spec.ts) **Krok 5** | Faktura widoczna w tabeli po `page.reload()` | ✅ Dowodzi persystencji danych po odświeżeniu strony. |
 | **Duplikacja przy retransmisji** | **Idempotencja zatwierdzenia** | [`live_synthetic_invoice.spec.ts`](tests/specs/e2e/live_synthetic_invoice.spec.ts) **Krok 8** | Replay 200, zmieniony payload 409 | ✅ Dowodzi idempotencji API i wykrywania kolizji klucza. |
-| **Odmowa między firmami (HTTP)** | **Bramka autoryzacji HTTP** | [`live_synthetic_invoice.spec.ts`](tests/specs/e2e/live_synthetic_invoice.spec.ts) **Krok 7** | `401` bez tokenu, `404` na obcy ID | ✅ Dowodzi bramek HTTP w FastAPI. ❌ Nie dowodzi RLS w PostgreSQL. |
+| **Brak dostępu bez tokenu i do nieistniejącego dokumentu (HTTP)** | **Bramka autoryzacji HTTP** | [`live_synthetic_invoice.spec.ts`](tests/specs/e2e/live_synthetic_invoice.spec.ts) **Krok 7** | `401` bez tokenu, `404` na nieistniejący ID | ✅ Dowodzi bramek HTTP w FastAPI. ❌ Nie dowodzi izolacji między firmami (żaden test nie tworzy drugiej firmy) ani RLS w PostgreSQL. |
 | **Naruszenie zatwierdzonej faktury (Immutability)** | **Append-only w bazie (`invoice_immutable_guard`)** | Test integracyjny `test_prevent_approved_invoice_mutation` oraz `test_v4_005b_approval_and_posting.py` (w `jdg_nc_app`) | Wyzwalacz PostgreSQL rzuca wyjątek na UPDATE/DELETE | ✅ **Dowód w teście integracyjnym PostgreSQL.** ❌ Playwright widzi tylko odrzucenie HTTP. |
 | **Wyciek danych między firmami (DB)** | **PostgreSQL Row Level Security (FORCE RLS)** | Testy integracyjne `test_v4_002_rls.py::test_cross_business_sql_matrix_denies_read_and_mutation` i `test_v4_005b_rls.py` (w `jdg_nc_app`) | Zapytania SQL bez pasującego `jdg.business_profile_id` zwracają 0 wierszy | ✅ **Dowód w teście integracyjnym PostgreSQL.** ❌ Playwright nie testuje bezpośrednio SQL RLS. |
 
@@ -323,9 +339,9 @@ To publiczne repozytorium jest **prezentacją** — kod źródłowy aplikacji zn
 | :--- | :--- | :--- |
 | Kod aplikacji (Python/FastAPI) | ✅ Kanoniczne źródło | ❌ Niedostępny |
 | Frontend (React/TypeScript) | ✅ Kanoniczne źródło | ❌ Niedostępny |
-| Migracje Alembic (PostgreSQL) | ✅ 18 migracji | ❌ Niedostępne |
-| Testy jednostkowe domeny | ✅ 248+ testów | ❌ Niedostępne |
-| Testy integracyjne DB | ✅ 146+ testów | ⚠️ Przykłady w `local_analysis/` |
+| Migracje Alembic (PostgreSQL) | ✅ 20 migracji | ❌ Niedostępne |
+| Testy jednostkowe domeny | ✅ 399 testów | ❌ Niedostępne |
+| Testy integracyjne DB | ✅ 213 testów | ⚠️ Przykłady w `local_analysis/` |
 | Testy E2E Playwright (czarna skrzynka) | ❌ | ✅ **Kanoniczne źródło** |
 | Circuit Breaker | ❌ | ✅ **Kanoniczne źródło** |
 | CI weryfikacja ager.pl | ❌ | ✅ **GitHub Actions** |

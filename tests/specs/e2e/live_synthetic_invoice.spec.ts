@@ -25,7 +25,8 @@ test.describe('Live Synthetic Invoice Full Flow (UI + API against ager.pl)', () 
   let approvedInvoiceId: string;
   let approvedInvoiceNumber: string;
 
-  // Unikalny identyfikator przebiegu E2E gwarantujący nowy profil syntetyczny
+  // Unikalny identyfikator przebiegu E2E: rozróżnia dane faktury i klucze Idempotency-Key.
+  // Profil firmy jest wspólny: synthetic-session wystawia token dla jednego stałego profilu demo.
   const runId = crypto.randomUUID().slice(0, 8);
   const createIdempotencyKey = `e2e-create-${runId}`;
   const validateIdempotencyKey = `e2e-validate-${runId}`;
@@ -236,7 +237,7 @@ test.describe('Live Synthetic Invoice Full Flow (UI + API against ager.pl)', () 
   });
 
   // 7. Odmowa (Bramki autoryzacji i integralności)
-  test('Krok 7: Odmowa dostępu — brak tokenu, próba odczytu obcego ID (401 / 404)', async ({ request }) => {
+  test('Krok 7: Odmowa dostępu — brak tokenu, nieistniejący ID (401 / 404)', async ({ request }) => {
     // 7a. Brak nagłówka Authorization na chronionym zasobie -> 401
     const unauthGet = await request.get(`/api/v1/invoices/${createdDraftId}`);
     expect(unauthGet.status()).toBe(401);
