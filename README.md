@@ -130,8 +130,8 @@ Plik [`tests/specs/e2e/live_synthetic_invoice.spec.ts`](tests/specs/e2e/live_syn
 
 | Krok | Co testuje | Metoda HTTP | Kluczowa asercja |
 | :--- | :--- | :--- | :--- |
-| **0** | Weryfikacja wersji aplikacji i rejestracja SHA | `GET /health` | Status `200`, nagłówek `X-App-Git-Sha` w formacie 7–40 znaków hex (albo `unknown`), zapis do `app-sha.txt` |
-| **0b** | Gotowość aplikacji i zgodność schematu bazy | `GET /health/ready` | Status `200`, `status: ready`. `503 SCHEMA_PENDING_MIGRATION` kończy test błędem z rewizjami bazy i kodu |
+| **0** | Weryfikacja wersji aplikacji i rejestracja SHA | `GET /health` | Status `200`, nagłówek `X-App-Git-Sha` w formacie 7–40 znaków hex (albo `unknown`), zapis do `app-sha.txt`. Gdy ustawiono `EXPECTED_APP_SHA`, inna wersja kończy przebieg błędem `[WRONG VERSION]` |
+| **0b** | Gotowość aplikacji i zgodność schematu bazy | `GET /health/ready` | Status `200`, `status: ready`. `503 SCHEMA_PENDING_MIGRATION` (z rewizjami) i `503 RUNTIME_ROLE_MEMBERSHIP_MISSING` (z brakującymi rolami) kończą test czytelnym błędem |
 | **1** | Uzyskanie syntetycznej tożsamości | `POST /api/v1/demo/synthetic-session` | Token `synthetic-demo-[48 hex]`, rola przydzielona server-side |
 | **2** | Utworzenie szkicu faktury (GOLDEN-003) | `POST /api/v1/invoices` | Status `201`, `DRAFT`, kwoty `1000.00 / 230.00 / 1230.00` |
 | **3** | Walidacja strukturalna i obliczeniowa | `POST /validate` | `STRUCTURALLY_VALID`, fingerprint SHA-256 (64 znaki) |
@@ -177,7 +177,9 @@ Kroki zależą od siebie (token → szkic → zatwierdzenie), więc spec działa
 | :--- | :--- | :--- |
 | Krok 0b: `503 SCHEMA_PENDING_MIGRATION` | Schemat bazy jest starszy niż wdrożony kod; nie wykonała się migracja | Job migracyjny w repozytorium aplikacji (`jdg_nc_app`), po stronie właściciela wdrożenia |
 | Krok 1: `500` lub `503` | Błąd po stronie aplikacji lub bazy przy wydawaniu sesji demo | Log aplikacji; test niczego nie naprawia, tylko to wykrywa |
+| Krok 0b: `503 RUNTIME_ROLE_MEMBERSHIP_MISSING` | Login aplikacji nie ma uprawnienia `SET` do wymienionych ról | `scripts/ops/grant_runtime_roles.sql` w repozytorium aplikacji, wykonuje administrator bazy |
 | Krok 0: nagłówek `X-App-Git-Sha` poza formatem 7–40 hex | Wdrożona wersja zgłasza inną wartość niż SHA commita | Wersja aplikacji, nie test |
+| Krok 0: `[WRONG VERSION]` | ager.pl serwuje inną wersję niż `EXPECTED_APP_SHA` | Poczekaj na koniec wdrożenia albo sprawdź, czy się powiodło |
 
 ---
 
@@ -357,6 +359,7 @@ To publiczne repozytorium jest **prezentacją** — kod źródłowy aplikacji zn
 | `DEMO_TEST_TOKEN` | ⚠️ alternatywa `DEMO_SECRET` | Alias sekretu (obsługiwany dla kompatybilności) |
 | `TEST_DATABASE_URL` | ✅ dla `test:local-analysis` | Connection string PostgreSQL (`postgresql://...`) |
 | `ALLOW_DEMO_MUTATIONS` | ❌ (domyślnie `false`) | Wymaga jawnego `true`, aby odblokować mutacje na `ager.pl` |
+| `EXPECTED_APP_SHA` | ❌ | Commit aplikacji (7–40 hex), który przebieg E2E musi zastać na serwerze. W CI ustawiany wejściem `expected_sha` przy ręcznym uruchomieniu workflow. Puste = tylko rejestracja SHA |
 
 ---
 

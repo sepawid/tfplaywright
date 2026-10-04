@@ -12,6 +12,11 @@ on:
         required: false
         type: boolean
         default: false
+      expected_sha:
+        description: 'Optional app commit (7-40 hex) the live run must find on ager.pl; empty = only record it'
+        required: false
+        type: string
+        default: ''
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -140,6 +145,8 @@ jobs:
           PLAYWRIGHT_BASE_URL: https://ager.pl
           ALLOW_DEMO_MUTATIONS: 'true'
           DEMO_SECRET: ${{ secrets.DEMO_SECRET }}
+          # Passed through env, never interpolated into the script; the spec validates the format.
+          EXPECTED_APP_SHA: ${{ inputs.expected_sha }}
         run: npx playwright test tests/specs/e2e/live_synthetic_invoice.spec.ts
 
       - name: Verify Test Results (Zero Skipped Policy)

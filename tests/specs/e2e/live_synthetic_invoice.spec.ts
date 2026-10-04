@@ -37,7 +37,26 @@ test.describe('Live Synthetic Invoice Full Flow (UI + API against ager.pl)', () 
     const response = await request.get('/health');
     expect(response.status()).toBe(200);
     const shaHeader = response.headers()['x-app-git-sha'] || 'unknown';
-    expect(shaHeader).toMatch(/^[0-9a-fA-F]{7,40}$|^unknown$/);
+    expect(
+      shaHeader,
+      `Nagłówek X-App-Git-Sha musi być skrótem commita (7–40 hex). Wartość 64-znakowa to zwykle digest obrazu, ` +
+        `czyli błąd wdrożenia aplikacji, a nie testu: ${shaHeader}`
+    ).toMatch(/^[0-9a-fA-F]{7,40}$|^unknown$/);
+
+    // Opcjonalnie: przebieg ma testować konkretną wersję (np. tuż po wdrożeniu). Bez tej zmiennej
+    // test tylko rejestruje SHA. Skróty porównujemy prefiksem, bo aplikacja zwraca krótki SHA.
+    const expectedSha = (process.env.EXPECTED_APP_SHA || '').trim().toLowerCase();
+    if (expectedSha) {
+      expect(expectedSha, 'EXPECTED_APP_SHA musi mieć 7–40 znaków hex').toMatch(/^[0-9a-f]{7,40}$/);
+      const served = shaHeader.toLowerCase();
+      const sameVersion = served !== 'unknown' && (served.startsWith(expectedSha) || expectedSha.startsWith(served));
+      if (!sameVersion) {
+        throw new Error(
+          `[WRONG VERSION] ager.pl serwuje ${shaHeader}, oczekiwano ${expectedSha}. ` +
+            'Wdrożenie jeszcze trwa albo nie powiodło się; przebieg nie testuje oczekiwanej wersji.'
+        );
+      }
+    }
 
     testInfo.annotations.push({ type: 'App-Git-Sha', description: shaHeader });
     console.log(`[E2E REPORT] Target Application Git SHA: ${shaHeader}`);
@@ -61,6 +80,12 @@ test.describe('Live Synthetic Invoice Full Flow (UI + API against ager.pl)', () 
       throw new Error(
         `[DEPLOY ERROR] Schemat bazy czeka na migrację (baza: ${body.schema_current}, oczekiwana: ${body.schema_expected}). ` +
           'Uruchom job migracyjny (infrastructure/k8s/00-migration-job.yaml) i ponów workflow.'
+      );
+    }
+    if (response.status() === 503 && body.reason === 'RUNTIME_ROLE_MEMBERSHIP_MISSING') {
+      throw new Error(
+        `[DEPLOY ERROR] Login aplikacji nie może przełączyć się na role: ${JSON.stringify(body.missing_roles)}. ` +
+          'Administrator bazy uruchamia scripts/ops/grant_runtime_roles.sql w repozytorium aplikacji; potem ponów workflow.'
       );
     }
     expect(response.status(), `Readiness: ${JSON.stringify(body)}`).toBe(200);
